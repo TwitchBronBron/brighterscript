@@ -1219,6 +1219,7 @@ export class ImportStatement extends Statement implements TypedefProvider {
 }
 
 export class ClassStatement extends Statement implements TypedefProvider {
+    readonly symbolTable: SymbolTable = new SymbolTable();
 
     constructor(
         readonly classKeyword: Token,
@@ -1238,9 +1239,13 @@ export class ClassStatement extends Statement implements TypedefProvider {
             if (isClassMethodStatement(statement)) {
                 this.methods.push(statement);
                 this.memberMap[statement?.name?.text.toLowerCase()] = statement;
+                const funcType = statement?.func.getFunctionType();
+                funcType.setName(this.getName(ParseMode.BrighterScript) + '.' + statement?.name?.text);
+                this.symbolTable.addSymbol(statement?.name?.text, statement?.range, funcType);
             } else if (isClassFieldStatement(statement)) {
                 this.fields.push(statement);
                 this.memberMap[statement?.name?.text.toLowerCase()] = statement;
+                this.symbolTable.addSymbol(statement?.name?.text, statement?.range, statement.getType());
             }
         }
 
