@@ -16,6 +16,7 @@ import { createInvalidLiteral, createToken, interpolatedRange } from '../astUtil
 import { DynamicType } from '../types/DynamicType';
 import { SymbolTable } from '../SymbolTable';
 import { CustomType } from '../types/CustomType';
+import { LazyType } from '../types/LazyType';
 
 /**
  * A BrightScript statement
@@ -1236,7 +1237,15 @@ export class ClassStatement extends Statement implements TypedefProvider {
     ) {
         super();
         this.body = this.body ?? [];
+
+        this.range = util.createRangeFromPositions(this.classKeyword.range.start, this.end.range.end);
         this.symbolTable.addSymbol('m', name?.range, this.getCustomType());
+        if (parentClassName) {
+            this.symbolTable.addSymbol('super', parentClassName?.range, new LazyType(() => {
+                return this.getConstructorFunction()?.func?.symbolTable.getSymbolType(parentClassName.getName(ParseMode.BrighterScript));
+            }));
+        }
+
         for (let statement of this.body) {
             if (isClassMethodStatement(statement)) {
                 this.methods.push(statement);
@@ -1251,7 +1260,6 @@ export class ClassStatement extends Statement implements TypedefProvider {
             }
         }
 
-        this.range = util.createRangeFromPositions(this.classKeyword.range.start, this.end.range.end);
     }
 
     public getName(parseMode: ParseMode) {
@@ -1279,6 +1287,14 @@ export class ClassStatement extends Statement implements TypedefProvider {
 
     public getCustomType(): CustomType {
         return new CustomType(this.getName(ParseMode.BrighterScript));
+    }
+
+    public getConstructorFunctionType() {
+        const constructFunc = this.getConstructorFunction() ?? this.getEmptyNewFunction();
+        const constructorFuncType = constructFunc.func.getFunctionType();
+        constructorFuncType.setName(this.getName(ParseMode.BrighterScript));
+        constructorFuncType.isNew = true;
+        return constructorFuncType;
     }
 
     transpile(state: BrsTranspileState) {
