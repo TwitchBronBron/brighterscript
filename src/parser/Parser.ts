@@ -2842,6 +2842,10 @@ export class References {
     public namespaceStatements = [] as NamespaceStatement[];
     public newExpressions = [] as NewExpression[];
     public propertyHints = {} as Record<string, string>;
+
+    public getContainingClass(currentToken: Token): ClassStatement {
+        return this.classStatements.find((cs) => util.rangeContains(cs.range, currentToken.range.start));
+    }
 }
 
 export interface LocalVarEntry {
