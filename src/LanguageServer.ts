@@ -877,11 +877,9 @@ export class LanguageServer {
 
         let srcPath = util.uriToPath(params.textDocument.uri);
         let workspaces = this.getWorkspaces();
-        let hovers = await Promise.all(
-            Array.prototype.concat.call([],
-                workspaces.map(async (x) => x.builder.program.getHover(srcPath, params.position))
-            )
-        ) as Hover[];
+        let hovers = ([] as Hover[]).concat(
+            workspaces.map((x) => x.builder.program.getHover(srcPath, params.position))
+        );
 
         //return the first non-falsey hover. TODO is there a way to handle multiple hover results?
         let hover = hovers.filter((x) => !!x)[0];

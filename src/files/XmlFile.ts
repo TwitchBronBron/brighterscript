@@ -1,7 +1,7 @@
 import * as path from 'path';
 import type { CodeWithSourceMap } from 'source-map';
 import { SourceNode } from 'source-map';
-import type { CompletionItem, Hover, Location, Position, Range } from 'vscode-languageserver';
+import type { CompletionItem, Position, Range } from 'vscode-languageserver';
 import { DiagnosticCodeMap, diagnosticCodes, DiagnosticMessages } from '../DiagnosticMessages';
 import type { Callable, BsDiagnostic, FileReference, FunctionCall, CommentFlag, BscFile } from '../interfaces';
 import type { Program } from '../Program';
@@ -15,7 +15,6 @@ import { SGScript } from '../parser/SGTypes';
 import { CommentFlagProcessor } from '../CommentFlagProcessor';
 import type { IToken, TokenType } from 'chevrotain';
 import { TranspileState } from '../parser/TranspileState';
-import type { FunctionExpression } from '../parser/Expression';
 
 export class XmlFile {
     constructor(
@@ -405,22 +404,6 @@ export class XmlFile {
         return this.cache.getOrAdd('parent', () => {
             return this.program.getComponent(this.parentComponentName?.text)?.file ?? null;
         });
-    }
-
-    public getHover(position: Position): Hover { //eslint-disable-line
-        //TODO implement
-        // let result = {} as Hover;
-        return null;
-    }
-
-    public getReferences(position: Position): Promise<Location[]> {
-        //TODO implement
-        return null;
-    }
-
-    public getFunctionExpressionAtPosition(position: Position, functionExpressions?: FunctionExpression[]): FunctionExpression {
-        //TODO implement
-        return null;
     }
 
     /**

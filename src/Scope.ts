@@ -310,7 +310,7 @@ export class Scope {
         const files = this.getOwnFiles();
         for (const file of files) {
             //either XML components or files without a typedef
-            if (isXmlFile(file) || !file.hasTypedef) {
+            if (isXmlFile(file) || (isBrsFile(file) && !file.hasTypedef)) {
                 callback(file);
             }
         }
@@ -326,11 +326,13 @@ export class Scope {
 
         //get callables from own files
         this.enumerateOwnFiles((file) => {
-            for (let callable of file.callables) {
-                result.push({
-                    callable: callable,
-                    scope: this
-                });
+            if (isBrsFile(file)) {
+                for (let callable of file.callables) {
+                    result.push({
+                        callable: callable,
+                        scope: this
+                    });
+                }
             }
         });
         return result;
@@ -574,7 +576,7 @@ export class Scope {
     /**
      * Find various function collisions
      */
-    private diagnosticDetectFunctionCollisions(file: BscFile) {
+    private diagnosticDetectFunctionCollisions(file: BrsFile) {
         for (let func of file.callables) {
             const funcName = func.getName(ParseMode.BrighterScript);
             const lowerFuncName = funcName?.toLowerCase();
@@ -637,7 +639,7 @@ export class Scope {
     }
 
 
-    private diagnosticDetectInvalidFunctionCalls(file: BscFile) {
+    private diagnosticDetectInvalidFunctionCalls(file: BrsFile) {
         for (let expCall of file.functionCalls) {
             const funcType = expCall.functionExpression.symbolTable.getSymbolType(expCall.name);
 
@@ -689,7 +691,7 @@ export class Scope {
      * @param file
      * @param callableContainersByLowerName
      */
-    private diagnosticDetectFunctionCallsWithWrongParamCount(file: BscFile, callableContainersByLowerName: CallableContainerMap) {
+    private diagnosticDetectFunctionCallsWithWrongParamCount(file: BrsFile, callableContainersByLowerName: CallableContainerMap) {
         //validate all function calls
         for (let expCall of file.functionCalls) {
             let callableContainersWithThisName = callableContainersByLowerName.get(expCall.name.toLowerCase());
@@ -792,7 +794,7 @@ export class Scope {
      * @param file
      * @param callablesByLowerName
      */
-    private diagnosticDetectCallsToUnknownFunctions(file: BscFile, callablesByLowerName: CallableContainerMap) {
+    private diagnosticDetectCallsToUnknownFunctions(file: BrsFile, callablesByLowerName: CallableContainerMap) {
         //validate all expression calls
         for (let expCall of file.functionCalls) {
             if (isBrsFile(file)) {
@@ -1036,19 +1038,18 @@ export class Scope {
         let results = new Map<string, CompletionItem>();
         let filesSearched = new Set<BscFile>();
         for (const file of this.getAllFiles()) {
-            if (isXmlFile(file) || filesSearched.has(file)) {
-                continue;
-            }
-            filesSearched.add(file);
-            for (let cs of file.parser.references.classStatements) {
-                for (let s of [...cs.methods, ...cs.fields]) {
-                    if (!results.has(s.name.text) && s.name.text.toLowerCase() !== 'new') {
-                        results.set(s.name.text, {
-                            label: s.name.text,
-                            kind: isClassMethodStatement(s) ? CompletionItemKind.Method : CompletionItemKind.Field
-                        });
+            if (isBrsFile(file) && !filesSearched.has(file)) {
+                for (let cs of file.parser.references.classStatements) {
+                    for (let s of [...cs.methods, ...cs.fields]) {
+                        if (!results.has(s.name.text) && s.name.text.toLowerCase() !== 'new') {
+                            results.set(s.name.text, {
+                                label: s.name.text,
+                                kind: isClassMethodStatement(s) ? CompletionItemKind.Method : CompletionItemKind.Field
+                            });
+                        }
                     }
                 }
+                filesSearched.add(file);
             }
         }
         return results;

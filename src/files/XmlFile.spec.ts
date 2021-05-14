@@ -9,6 +9,7 @@ import { Program } from '../Program';
 import { XmlFile } from './XmlFile';
 import { standardizePath as s } from '../util';
 import { expectZeroDiagnostics, getTestTranspile, trim, trimMap } from '../testHelpers.spec';
+import type { BrsFile } from './BrsFile';
 
 describe('XmlFile', () => {
     const tempDir = s`${process.cwd()}/.tmp`;
@@ -628,12 +629,12 @@ describe('XmlFile', () => {
         it(`honors the 'needsTranspiled' flag when set in 'afterFileParse'`, () => {
             program.plugins.add({
                 name: 'test',
-                afterFileParse: (event) => {
+                afterFileParse: (event: any) => {
                     //enable transpile for every file
                     event.file.needsTranspiled = true;
                 }
             });
-            const file = program.addOrReplaceFile('components/file.xml', trim`
+            const file = program.addOrReplaceFile<BrsFile>('components/file.xml', trim`
                 <?xml version="1.0" encoding="utf-8" ?>
                 <component name="Comp" extends="Group">
                 </component>
@@ -688,7 +689,7 @@ describe('XmlFile', () => {
         });
 
         it('does not transpile xml file when bslib script is already present', () => {
-            const file = program.addOrReplaceFile('components/comp.xml', trim`
+            const file = program.addOrReplaceFile<BrsFile>('components/comp.xml', trim`
                 <?xml version="1.0" encoding="utf-8" ?>
                 <component name="Comp" extends="Group">
                     <script type="text/brightscript" uri="pkg:/source/bslib.brs" />
@@ -829,7 +830,7 @@ describe('XmlFile', () => {
         });
 
         it('needsTranspiled is false by default', () => {
-            let file = program.addOrReplaceFile('components/SimpleScene.xml', trim`
+            let file = program.addOrReplaceFile<XmlFile>('components/SimpleScene.xml', trim`
                 <?xml version="1.0" encoding="utf-8" ?>
                 <component name="SimpleScene" extends="Scene" >
                 </component>
@@ -838,7 +839,7 @@ describe('XmlFile', () => {
         });
 
         it('needsTranspiled is true if an import is brighterscript', () => {
-            let file = program.addOrReplaceFile('components/SimpleScene.xml', trim`
+            let file = program.addOrReplaceFile<XmlFile>('components/SimpleScene.xml', trim`
                 <?xml version="1.0" encoding="utf-8" ?>
                 <component name="SimpleScene" extends="Scene" >
                     <script type="text/brightscript" uri="SimpleScene.bs"/>
@@ -863,7 +864,7 @@ describe('XmlFile', () => {
 
         it('AST-based source mapping includes sourcemap reference', () => {
             program.options.sourceMap = true;
-            let file = program.addOrReplaceFile('components/SimpleScene.xml', trim`
+            let file = program.addOrReplaceFile<XmlFile>('components/SimpleScene.xml', trim`
                 <?xml version="1.0" encoding="utf-8" ?>
                 <component name="SimpleScene" extends="Scene">
                 </component>
@@ -902,10 +903,10 @@ describe('XmlFile', () => {
     it('plugin diagnostics work for xml files', () => {
         program.plugins.add({
             name: 'Xml diagnostic test',
-            afterFileParse: ({ file }) => {
-                if (file.srcPath.endsWith('.xml')) {
-                    file.addDiagnostics([{
-                        file: file,
+            afterFileParse: (event: { file }) => {
+                if (event.file.srcPath.endsWith('.xml')) {
+                    event.file.addDiagnostics([{
+                        file: event.file,
                         message: 'Test diagnostic',
                         range: Range.create(0, 0, 0, 0),
                         code: 9999
