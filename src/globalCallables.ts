@@ -692,7 +692,8 @@ By using Chr, you can create strings containing characters which cannot be conta
             type: new StringType()
         }, {
             name: 'radix',
-            type: new IntegerType()
+            type: new IntegerType(),
+            isOptional: true
         }]
     }, {
         name: 'Substitute',
