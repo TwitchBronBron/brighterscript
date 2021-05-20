@@ -513,7 +513,7 @@ export class Parser {
             fieldType = this.typeToken();
 
             //no field type specified
-            if (!util.tokenToBscType(fieldType)) {
+            if (!util.tokenToBscType(fieldType, true, this.currentNamespaceName)) {
                 this.diagnostics.push({
                     ...DiagnosticMessages.expectedValidTypeToFollowAsKeyword(),
                     range: this.peek().range
@@ -535,7 +535,8 @@ export class Parser {
             asToken,
             fieldType,
             equal,
-            initialValue
+            initialValue,
+            this.currentNamespaceName
         );
     }
 
@@ -635,7 +636,7 @@ export class Parser {
 
                 typeToken = this.typeToken();
 
-                if (!util.tokenToBscType(typeToken, this.options.mode === ParseMode.BrighterScript)) {
+                if (!util.tokenToBscType(typeToken, this.options.mode === ParseMode.BrighterScript, this.currentNamespaceName)) {
                     this.diagnostics.push({
                         ...DiagnosticMessages.invalidFunctionReturnType(typeToken.text ?? ''),
                         range: typeToken.range
@@ -774,7 +775,7 @@ export class Parser {
 
             typeToken = this.typeToken();
 
-            if (!util.tokenToBscType(typeToken, this.options.mode === ParseMode.BrighterScript)) {
+            if (!util.tokenToBscType(typeToken, this.options.mode === ParseMode.BrighterScript, this.currentNamespaceName)) {
                 this.diagnostics.push({
                     ...DiagnosticMessages.functionParameterTypeIsInvalid(name.text, typeToken.text),
                     range: typeToken.range
@@ -786,7 +787,7 @@ export class Parser {
         let type: BscType;
 
         if (typeToken) {
-            type = util.tokenToBscType(typeToken);
+            type = util.tokenToBscType(typeToken, true, this.currentNamespaceName);
         } else if (defaultValue) {
             type = getBscTypeFromExpression(defaultValue, this.currentFunctionExpression);
         } else {
