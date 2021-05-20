@@ -2903,6 +2903,9 @@ export class References {
     public getContainingClass(currentToken: Token): ClassStatement {
         return this.classStatements.find((cs) => util.rangeContains(cs.range, currentToken.range.start));
     }
+    public getContainingNamespace(currentToken: Token): NamespaceStatement {
+        return this.namespaceStatements.find((cs) => util.rangeContains(cs.range, currentToken.range.start));
+    }
 }
 
 export interface LocalVarEntry {
