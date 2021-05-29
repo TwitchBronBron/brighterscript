@@ -6,9 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [1.0.0-alpha.7] - 2021-05-17
+[1.0.0-alpha.7]: https://github.com/rokucommunity/brighterscript/compare/v1.0.0-alpha.6...v1.0.0-alpha.7
+### Added
+ - all changes from [v0.39.2](#0390---2021-05-28)
+
+
+
 ## [0.39.2] - 2021-05-28
+[0.39.2]:   https://github.com/rokucommunity/brighterscript/compare/v0.39.1...v0.39.2
 ### Changed
  - upgraded to [roku-deploy@3.4.0](https://github.com/rokucommunity/roku-deploy/blob/master/CHANGELOG.md#340---2021-05-28) which brings significant zip speed improvements
+
+
+
+## [1.0.0-alpha.6] - 2021-05-17
+[1.0.0-alpha.6]:   https://github.com/rokucommunity/brighterscript/compare/v1.0.0-alpha.5...v1.0.0-alpha.6
+### Added
+ - all changes from [v0.39.1](#0390---2021-05-24)
 
 
 
@@ -22,6 +37,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [1.0.0-alpha.5] - 2021-05-17
+[1.0.0-alpha.5]:   https://github.com/rokucommunity/brighterscript/compare/v1.0.0-alpha.4...v1.0.0-alpha.5
+### Added
+ - all changes from [v0.39.0](#0390---2021-05-18)
+### Changed
+ - Add location tracking (range property) to all SceneGraph/XML nodes. ([#400](https://github.com/rokucommunity/brighterscript/pull/400))
+ - Refactored SGComponent scripts, children, and interface properties into getter functions which are driven by the underlying XML AST. This means as you modify the AST, those getter functions will automatically reflect the changes. ([#400](https://github.com/rokucommunity/brighterscript/pull/400))
+ - Refactored SGInterface properties fields and functions to getter functions which are driven by the underlying XML AST. ([#400](https://github.com/rokucommunity/brighterscript/pull/400))
+ - Moved SGParser module functions onto the SGParser class itself to match the OO patterns in the rest of the project. ([#400](https://github.com/rokucommunity/brighterscript/pull/400))
+
+
+
 ## [0.39.0] - 2021-05-18
 [0.39.0]:   https://github.com/rokucommunity/brighterscript/compare/v0.38.2...v0.39.0
 ### Added
@@ -30,10 +57,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [1.0.0-alpha.4] - 2021-05-17
+[1.0.0-alpha.4]:   https://github.com/rokucommunity/brighterscript/compare/v1.0.0-alpha.3...v1.0.0-alpha.4
+### Added
+ - all changes from [v0.38.2](#0380---2021-05-17)
+
+
+
 ## [0.38.2] - 2021-05-17
 [0.38.2]:   https://github.com/rokucommunity/brighterscript/compare/v0.38.1...v0.38.2
 ### Fixed
  - language server crash when namespaced function or class didn't have a name ([#419](https://github.com/rokucommunity/brighterscript/pull/419))
+
+
+
+## [1.0.0-alpha.3]
+[1.0.0-alpha.3]:   https://github.com/rokucommunity/brighterscript/compare/v1.0.0-alpha.2...v1.0.0-alpha.3
+### Added
+ - all changes from [v0.38.1](#0380---2021-05-14)
+### Changed
+ - rename `Program.addOrReplaceFile` to `Program.setFile` ([#405](https://github.com/rokucommunity/brighterscript/pull/405))
+ - Unified global callables and function type param definitions ([#417](https://github.com/rokucommunity/brighterscript/pull/417))
+ - Fix issue with global `Val` function where there were two global functions with same name and different params and return types ([#417](https://github.com/rokucommunity/brighterscript/pull/417))
+ - move token-specific functions into `Parser.ts` ([#407](https://github.com/rokucommunity/brighterscript/pull/407))
 
 
 
@@ -49,10 +95,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [1.0.0-alpha.2]
+[1.0.0-alpha.2]:   https://github.com/rokucommunity/brighterscript/compare/v1.0.0-alpha.1...v1.0.0-alpha.2
+### Added
+ - all changes from [v0.38.0](#0380---2021-05-04)
+### Changed
+ - Rename pathAbsolute to srcPath ([#399](https://github.com/rokucommunity/brighterscript/pull/399))
+ - Convert pkgPath to actual pkgPath (i.e. `pkg:/source/main.brs` where previously it would have been `source/main.brs` or `source\main.brs`) ([#399](https://github.com/rokucommunity/brighterscript/pull/399))
+ - Simplify Program removeFile and addReplaceFile ([#399](https://github.com/rokucommunity/brighterscript/pull/399))
+ - Add `normalizePath` parameter to file-related functions in `Program` and `Scope` ([#399](https://github.com/rokucommunity/brighterscript/pull/399))
+
+
+
 ## [0.38.0] - 2021-05-04
 ### Added
  - warning for mismatched class method accessibility ([#402](https://github.com/rokucommunity/brighterscript/pull/402))
  - allow class field overrides in child classes as long as they are the same type ([#394](https://github.com/rokucommunity/brighterscript/pull/394))
+
+
+
+## [1.0.0-alpha.1]
+[1.0.0-alpha.1]:   https://github.com/rokucommunity/brighterscript/compare/v0.37.4...v1.0.0-alpha.1
+### Add
+ - Type checking for function arguments ([#401](https://github.com/rokucommunity/brighterscript/pull/401))
+### Changed
+ - Refactor plugin events to emit an event object ([#397](https://github.com/rokucommunity/brighterscript/pull/397))
+ - Remove `FunctionScope` ([#401](https://github.com/rokucommunity/brighterscript/pull/401))
+ - Add `SymbolTable` and `LazyType` objects to improve type tracking ([#401](https://github.com/rokucommunity/brighterscript/pull/401))
+
+
+
+## [0.37.4] - 2021-04-20
+### Fixed
+ - bug validating namespace function calls ([#390](https://github.com/rokucommunity/brighterscript/pull/390))
 
 
 
@@ -1144,4 +1219,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.38.0]:   https://github.com/rokucommunity/brighterscript/compare/v0.37.4...v0.38.0
 [0.39.0]:   https://github.com/rokucommunity/brighterscript/compare/v0.38.0...v0.39.0
 [0.39.1]:   https://github.com/rokucommunity/brighterscript/compare/v0.39.0...v0.39.1
-[0.39.2]:   https://github.com/rokucommunity/brighterscript/compare/v0.39.1...v0.39.2

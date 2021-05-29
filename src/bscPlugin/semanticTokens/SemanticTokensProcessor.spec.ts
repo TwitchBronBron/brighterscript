@@ -19,7 +19,7 @@ describe('SemanticTokensProcessor', () => {
     });
 
     it('matches each namespace section', () => {
-        const file = program.addOrReplaceFile<BrsFile>('source/main.bs', `
+        const file = program.setFile<BrsFile>('source/main.bs', `
             namespace Earthlings.Humanoids
                 class Person
                 end class
@@ -33,7 +33,7 @@ describe('SemanticTokensProcessor', () => {
         program.validate();
         expectZeroDiagnostics(program);
         expect(
-            program.getSemanticTokens(file.pathAbsolute)
+            program.getSemanticTokens(file.srcPath)
         ).to.eql([{
             range: util.createRange(7, 34, 7, 44),
             tokenType: SemanticTokenTypes.namespace

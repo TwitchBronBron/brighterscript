@@ -13,6 +13,7 @@ import { standardizePath as s, util } from './util';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import type { Program } from './Program';
 import * as assert from 'assert';
+import type { XmlFile } from './files/XmlFile';
 
 let sinon: sinonImport.SinonSandbox;
 beforeEach(() => {
@@ -81,11 +82,11 @@ describe('LanguageServer', () => {
 
         //hijack the file resolver so we can inject in-memory files for our tests
         let originalResolver = svr.documentFileResolver;
-        svr.documentFileResolver = (pathAbsolute: string) => {
-            if (vfs[pathAbsolute]) {
-                return vfs[pathAbsolute];
+        svr.documentFileResolver = (srcPath: string) => {
+            if (vfs[srcPath]) {
+                return vfs[srcPath];
             } else {
-                return originalResolver.call(svr, pathAbsolute);
+                return originalResolver.call(svr, srcPath);
             }
         };
 
@@ -97,7 +98,7 @@ describe('LanguageServer', () => {
     afterEach(async () => {
         try {
             await Promise.all(
-                physicalFilePaths.map(pathAbsolute => fsExtra.unlinkSync(pathAbsolute))
+                physicalFilePaths.map(srcPath => fsExtra.unlinkSync(srcPath))
             );
         } catch (e) {
 
@@ -113,25 +114,21 @@ describe('LanguageServer', () => {
             ${additionalXmlContents}
             <script type="text/brightscript" uri="${name}.brs" />
         </component>`;
-        program.addOrReplaceFile(filePath, contents);
+        program.setFile(filePath, contents);
     }
 
     function addScriptFile(name: string, contents: string, extension = 'brs') {
-        const filePath = s`components/${name}.${extension}`;
-        program.addOrReplaceFile(filePath, contents);
-        for (const key in program.files) {
-            if (key.includes(filePath)) {
-                const document = TextDocument.create(util.pathToUri(key), 'brightscript', 1, contents);
-                svr.documents._documents[document.uri] = document;
-                return document;
-            }
-        }
+        const pkgPath = `pkg:/components/${name}.${extension}`;
+        const file = program.setFile<XmlFile>(pkgPath, contents);
+        const document = TextDocument.create(util.pathToUri(file.srcPath), 'brightscript', 1, contents);
+        svr.documents._documents[document.uri] = document;
+        return document;
     }
 
-    function writeToFs(pathAbsolute: string, contents: string) {
-        physicalFilePaths.push(pathAbsolute);
-        fsExtra.ensureDirSync(path.dirname(pathAbsolute));
-        fsExtra.writeFileSync(pathAbsolute, contents);
+    function writeToFs(srcPath: string, contents: string) {
+        physicalFilePaths.push(srcPath);
+        fsExtra.ensureDirSync(path.dirname(srcPath));
+        fsExtra.writeFileSync(srcPath, contents);
     }
 
     describe('createStandaloneFileWorkspace', () => {
@@ -194,7 +191,7 @@ describe('LanguageServer', () => {
                     getDiagnostics: () => {
                         return [{
                             file: {
-                                pathAbsolute: s`${rootDir}/source/main.brs`
+                                srcPath: s`${rootDir}/source/main.brs`
                             },
                             code: 1000,
                             range: Range.create(1, 2, 3, 4)
@@ -207,7 +204,7 @@ describe('LanguageServer', () => {
                     getDiagnostics: () => {
                         return [{
                             file: {
-                                pathAbsolute: s`${rootDir}/source/main.brs`
+                                srcPath: s`${rootDir}/source/main.brs`
                             },
                             code: 1000,
                             range: Range.create(1, 2, 3, 4)
@@ -285,7 +282,7 @@ describe('LanguageServer', () => {
                     getFileContents: sinon.stub().callsFake(() => Promise.resolve('')) as any,
                     rootDir: rootDir,
                     program: {
-                        addOrReplaceFile: <any>addOrReplaceFileStub
+                        setFile: <any>addOrReplaceFileStub
                     }
                 }
             } as Workspace;
@@ -295,7 +292,7 @@ describe('LanguageServer', () => {
 
             await server.handleFileChanges(workspace, [{
                 type: FileChangeType.Created,
-                pathAbsolute: mainPath
+                srcPath: mainPath
             }]);
 
             expect(addOrReplaceFileStub.getCalls()[0]?.args[0]).to.eql({
@@ -308,7 +305,7 @@ describe('LanguageServer', () => {
             expect(addOrReplaceFileStub.callCount).to.equal(1);
             await server.handleFileChanges(workspace, [{
                 type: FileChangeType.Created,
-                pathAbsolute: libPath
+                srcPath: libPath
             }]);
             //the function should have ignored the lib file, so no additional files were added
             expect(addOrReplaceFileStub.callCount).to.equal(1);
@@ -348,10 +345,10 @@ describe('LanguageServer', () => {
 
             expect(stub.getCalls()[0].args[1]).to.eql([{
                 type: FileChangeType.Created,
-                pathAbsolute: s`${rootDir}/source/main.brs`
+                srcPath: s`${rootDir}/source/main.brs`
             }, {
                 type: FileChangeType.Created,
-                pathAbsolute: s`${rootDir}/source/lib.brs`
+                srcPath: s`${rootDir}/source/lib.brs`
             }]);
         });
 
@@ -386,10 +383,10 @@ describe('LanguageServer', () => {
 
             expect(stub.getCalls()[0].args[1]).to.eql([{
                 type: FileChangeType.Created,
-                pathAbsolute: s`${rootDir}/source/main.brs`
+                srcPath: s`${rootDir}/source/main.brs`
             }, {
                 type: FileChangeType.Created,
-                pathAbsolute: s`${rootDir}/source/lib.brs`
+                srcPath: s`${rootDir}/source/lib.brs`
             }]);
         });
     });

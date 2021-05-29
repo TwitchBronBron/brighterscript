@@ -46,17 +46,21 @@ export class ProgramBuilder {
      * Get the contents of the specified file as a string.
      * This walks backwards through the file resolvers until we get a value.
      * This allow the language server to provide file contents directly from memory.
+     * @param srcPath The absolute path to the source file on disk
+     * @param normalizePath should this function repair and standardize the path? Passing false should have a performance boost if you can guarantee your path is already sanitized
      */
-    public async getFileContents(pathAbsolute: string) {
-        pathAbsolute = s`${pathAbsolute}`;
+    public async getFileContents(srcPath: string, normalizePath = true) {
+        if (normalizePath) {
+            srcPath = util.standardizePath(srcPath);
+        }
         let reversedResolvers = [...this.fileResolvers].reverse();
         for (let fileResolver of reversedResolvers) {
-            let result = await fileResolver(pathAbsolute);
+            let result = await fileResolver(srcPath);
             if (typeof result === 'string') {
                 return result;
             }
         }
-        throw new Error(`Could not load file "${pathAbsolute}"`);
+        throw new Error(`Could not load file "${srcPath}"`);
     }
 
     /**
@@ -64,19 +68,14 @@ export class ProgramBuilder {
      */
     private staticDiagnostics = [] as BsDiagnostic[];
 
-    public addDiagnostic(filePathAbsolute: string, diagnostic: Partial<BsDiagnostic>) {
-        let file: BscFile = this.program.getFileByPathAbsolute(filePathAbsolute);
-        if (!file) {
-            file = {
-                pkgPath: this.program.getPkgPath(filePathAbsolute),
-                pathAbsolute: filePathAbsolute,
-                getDiagnostics: () => {
-                    return [<any>diagnostic];
-                }
-            } as BscFile;
-        }
-        diagnostic.file = file;
-        this.staticDiagnostics.push(<any>diagnostic);
+    /**
+     * @param srcPath The absolute path to the source file on disk
+     */
+    public addDiagnostic(srcPath: string, diagnostic: Partial<BsDiagnostic>) {
+        diagnostic.file = this.program.getFile(srcPath) ?? {
+            srcPath: srcPath
+        } as BscFile;
+        this.staticDiagnostics.push(diagnostic as BsDiagnostic);
     }
 
     public getDiagnostics() {
@@ -129,7 +128,10 @@ export class ProgramBuilder {
     protected createProgram() {
         const program = new Program(this.options, undefined, this.plugins);
 
-        this.plugins.emit('afterProgramCreate', program);
+        this.plugins.emit('afterProgramCreate', {
+            builder: this,
+            program: program
+        });
         return program;
     }
 
@@ -145,7 +147,9 @@ export class ProgramBuilder {
             this.plugins.add(plugin);
         }
 
-        this.plugins.emit('beforeProgramCreate', this);
+        this.plugins.emit('beforeProgramCreate', {
+            builder: this
+        });
     }
 
     private clearConsole() {
@@ -200,9 +204,9 @@ export class ProgramBuilder {
                         util.driveLetterToLower(this.rootDir)
                     )
                 };
-                this.program.addOrReplaceFile(
+                this.program.setFile(
                     fileObj,
-                    await this.getFileContents(fileObj.src)
+                    await this.getFileContents(fileObj.src, false)
                 );
             } else if (event === 'unlink') {
                 this.program.removeFile(thePath);
@@ -259,19 +263,19 @@ export class ProgramBuilder {
         //group the diagnostics by file
         let diagnosticsByFile = {} as Record<string, BsDiagnostic[]>;
         for (let diagnostic of diagnostics) {
-            if (!diagnosticsByFile[diagnostic.file.pathAbsolute]) {
-                diagnosticsByFile[diagnostic.file.pathAbsolute] = [];
+            if (!diagnosticsByFile[diagnostic.file.srcPath]) {
+                diagnosticsByFile[diagnostic.file.srcPath] = [];
             }
-            diagnosticsByFile[diagnostic.file.pathAbsolute].push(diagnostic);
+            diagnosticsByFile[diagnostic.file.srcPath].push(diagnostic);
         }
 
         //get printing options
         const options = diagnosticUtils.getPrintDiagnosticOptions(this.options);
         const { cwd, emitFullPaths } = options;
 
-        let pathsAbsolute = Object.keys(diagnosticsByFile).sort();
-        for (let pathAbsolute of pathsAbsolute) {
-            let diagnosticsForFile = diagnosticsByFile[pathAbsolute];
+        let srcPaths = Object.keys(diagnosticsByFile).sort();
+        for (let srcPath of srcPaths) {
+            let diagnosticsForFile = diagnosticsByFile[srcPath];
             //sort the diagnostics in line and column order
             let sortedDiagnostics = diagnosticsForFile.sort((a, b) => {
                 return (
@@ -280,12 +284,12 @@ export class ProgramBuilder {
                 );
             });
 
-            let filePath = pathAbsolute;
+            let filePath = srcPath;
             if (!emitFullPaths) {
                 filePath = path.relative(cwd, filePath);
             }
             //load the file text
-            const file = this.program.getFileByPathAbsolute(pathAbsolute);
+            const file = this.program.getFile(srcPath);
             //get the file's in-memory contents if available
             const lines = file?.fileContents?.split(/\r?\n/g) ?? [];
 
@@ -382,35 +386,51 @@ export class ProgramBuilder {
         });
 
         //get every file referenced by the files array
-        let fileMap = await rokuDeploy.getFilePaths(options.files, options.rootDir);
+        let fileEntries = await rokuDeploy.getFilePaths(options.files, options.rootDir);
 
         //remove files currently loaded in the program, we will transpile those instead (even if just for source maps)
-        let filteredFileMap = [] as FileObj[];
-        for (let fileEntry of fileMap) {
+        let filteredFileEntries = [] as FileObj[];
+        for (let fileEntry of fileEntries) {
             if (this.program.hasFile(fileEntry.src) === false) {
-                filteredFileMap.push(fileEntry);
+                filteredFileEntries.push(fileEntry);
             }
         }
 
-        this.plugins.emit('beforePrepublish', this, filteredFileMap);
+        this.plugins.emit('beforePrepublish', {
+            builder: this,
+            program: this.program,
+            files: filteredFileEntries
+        });
 
         await this.logger.time(LogLevel.log, ['Copying to staging directory'], async () => {
             //prepublish all non-program-loaded files to staging
             await rokuDeploy.prepublishToStaging({
                 ...options,
-                files: filteredFileMap
+                files: filteredFileEntries
             });
         });
 
-        this.plugins.emit('afterPrepublish', this, filteredFileMap);
-        this.plugins.emit('beforePublish', this, fileMap);
+        this.plugins.emit('afterPrepublish', {
+            builder: this,
+            program: this.program,
+            files: filteredFileEntries
+        });
+        this.plugins.emit('beforePublish', {
+            builder: this,
+            program: this.program,
+            files: fileEntries
+        });
 
         await this.logger.time(LogLevel.log, ['Transpiling'], async () => {
             //transpile any brighterscript files
-            await this.program.transpile(fileMap, options.stagingFolderPath);
+            await this.program.transpile(fileEntries, options.stagingFolderPath);
         });
 
-        this.plugins.emit('afterPublish', this, fileMap);
+        this.plugins.emit('afterPublish', {
+            builder: this,
+            program: this.program,
+            files: fileEntries
+        });
     }
 
     private async deployPackageIfEnabled() {
@@ -453,7 +473,7 @@ export class ProgramBuilder {
             await Promise.all(
                 typedefFiles.map(async (fileObj) => {
                     try {
-                        this.program.addOrReplaceFile(
+                        this.program.setFile(
                             fileObj,
                             await this.getFileContents(fileObj.src)
                         );
@@ -473,7 +493,7 @@ export class ProgramBuilder {
 
                         //only process certain file types
                         if (acceptableExtensions.includes(fileExtension)) {
-                            this.program.addOrReplaceFile(
+                            this.program.setFile(
                                 fileObj,
                                 await this.getFileContents(fileObj.src)
                             );
@@ -486,19 +506,6 @@ export class ProgramBuilder {
             );
             return errorCount;
         });
-    }
-
-    /**
-     * Remove all files from the program that are in the specified folder path
-     * @param folderPathAbsolute
-     */
-    public removeFilesInFolder(folderPathAbsolute: string) {
-        for (let filePath in this.program.files) {
-            //if the file path starts with the parent path and the file path does not exactly match the folder path
-            if (filePath.startsWith(folderPathAbsolute) && filePath !== folderPathAbsolute) {
-                this.program.removeFile(filePath);
-            }
-        }
     }
 
     /**

@@ -9,7 +9,7 @@ import { URI } from 'vscode-uri';
 import * as xml2js from 'xml2js';
 import type { BsConfig } from './BsConfig';
 import { DiagnosticMessages } from './DiagnosticMessages';
-import type { CallableContainer, BsDiagnostic, FileReference, CallableContainerMap, CompilerPluginFactory, CompilerPlugin, ExpressionInfo } from './interfaces';
+import type { CallableContainer, BsDiagnostic, FileReference, CallableContainerMap, CompilerPluginFactory, CompilerPlugin, ExpressionInfo, FunctionCall, CallableParam, TranspileResult } from './interfaces';
 import { BooleanType } from './types/BooleanType';
 import { DoubleType } from './types/DoubleType';
 import { DynamicType } from './types/DynamicType';
@@ -29,7 +29,7 @@ import { TokenKind } from './lexer';
 import { isDottedGetExpression, isExpression, isVariableExpression, WalkMode } from './astUtils';
 import { CustomType } from './types/CustomType';
 import { SourceNode } from 'source-map';
-import type { SGAttribute } from './parser/SGTypes';
+import { SGAttribute } from './parser/SGTypes';
 
 export class Util {
     public clearConsole() {
@@ -70,9 +70,20 @@ export class Util {
     /**
      * Given a pkg path of any kind, transform it to a roku-specific pkg path (i.e. "pkg:/some/path.brs")
      */
-    public getRokuPkgPath(pkgPath: string) {
+    public sanitizePkgPath(pkgPath: string) {
         pkgPath = pkgPath.replace(/\\/g, '/');
-        return 'pkg:/' + pkgPath;
+        //if there's no protocol, assume it's supposed to start with `pkg:/`
+        if (!this.startsWithProtocol(pkgPath)) {
+            pkgPath = 'pkg:/' + pkgPath;
+        }
+        return pkgPath;
+    }
+
+    /**
+     * Determine if the given path starts with a protocol
+     */
+    public startsWithProtocol(path: string) {
+        return !!/^[-a-z]+:\//i.exec(path);
     }
 
     /**
@@ -123,7 +134,7 @@ export class Util {
                 colIndex++;
             }
         }
-        return util.createRange(lineIndex, colIndex, lineIndex, colIndex + length);
+        return this.createRange(lineIndex, colIndex, lineIndex, colIndex + length);
     }
 
     /**
@@ -159,7 +170,7 @@ export class Util {
                 let diagnostic = {
                     ...DiagnosticMessages.bsConfigJsonHasSyntaxErrors(printParseErrorCode(parseErrors[0].error)),
                     file: {
-                        pathAbsolute: configFilePath
+                        srcPath: configFilePath
                     },
                     range: this.getRangeFromOffsetLength(projectFileContents, err.offset, err.length)
                 } as BsDiagnostic;
@@ -370,32 +381,28 @@ export class Util {
     }
 
     /**
-     * Given an absolute path to a source file, and a target path,
-     * compute the pkg path for the target relative to the source file's location
-     * @param containingFilePathAbsolute
-     * @param targetPath
+     * Compute the pkg path for the target relative to the source file's location
+     * @param sourcePkgPath The pkgPath of the file that contains the target path
+     * @param targetPath a full pkgPath, or a path relative to the containing file
      */
-    public getPkgPathFromTarget(containingFilePathAbsolute: string, targetPath: string) {
-        //if the target starts with 'pkg:', it's an absolute path. Return as is
-        if (targetPath.startsWith('pkg:/')) {
-            targetPath = targetPath.substring(5);
-            if (targetPath === '') {
-                return null;
-            } else {
-                return path.normalize(targetPath);
-            }
-        }
-        if (targetPath === 'pkg:') {
+    public getPkgPathFromTarget(sourcePkgPath: string, targetPath: string) {
+        const [protocol] = /^[-a-z0-9_]+:\/?/i.exec(targetPath) ?? [];
+
+        //if the target path is only a file protocol (with or without the trailing slash such as `pkg:` or `pkg:/`), nothing more can be done
+        if (targetPath?.length === protocol?.length) {
             return null;
         }
+        //if the target starts with 'pkg:', return as-is
+        if (protocol) {
+            return targetPath;
+        }
 
-        //remove the filename
-        let containingFolder = path.normalize(path.dirname(containingFilePathAbsolute));
         //start with the containing folder, split by slash
-        let result = containingFolder.split(path.sep);
+        const containingFolder = path.posix.normalize(path.dirname(sourcePkgPath));
+        let result = containingFolder.split(/[\\/]/);
 
         //split on slash
-        let targetParts = path.normalize(targetPath).split(path.sep);
+        let targetParts = path.posix.normalize(targetPath).split(/[\\/]/);
 
         for (let part of targetParts) {
             if (part === '' || part === '.') {
@@ -409,7 +416,7 @@ export class Util {
                 result.push(part);
             }
         }
-        return result.join(path.sep);
+        return result.join('/');
     }
 
     /**
@@ -592,9 +599,10 @@ export class Util {
 
     /**
      * Given a file path, convert it to a URI string
+     * @param srcPath The absolute path to the source file on disk
      */
-    public pathToUri(pathAbsolute: string) {
-        return URI.file(pathAbsolute).toString();
+    public pathToUri(srcPath: string) {
+        return URI.file(srcPath).toString();
     }
 
     /**
@@ -623,7 +631,8 @@ export class Util {
 
     /**
      * Given a path to a brs file, compute the path to a theoretical d.bs file.
-     * Only `.brs` files can have typedef path, so return undefined for everything else
+     * Only `.brs` files can have a typedef, so return undefined for everything else
+     * @param brsSrcPath The absolute path to the .brs source file on disk
      */
     public getTypedefPath(brsSrcPath: string) {
         const typedefPath = brsSrcPath
@@ -871,6 +880,39 @@ export class Util {
     }
 
     /**
+     * Given a list of ranges, create a range that starts with the first non-null lefthand range, and ends with the first non-null
+     * righthand range. Returns undefined if none of the items have a range.
+     */
+    public createBoundingRange(...locatables: Array<{ range?: Range }>) {
+        let leftmost: { range?: Range };
+        let rightmost: { range?: Range };
+
+        for (let i = 0; i < locatables.length; i++) {
+            //set the leftmost non-null-range item
+            const left = locatables[i];
+            if (!leftmost && left?.range) {
+                leftmost = left;
+            }
+
+            //set the rightmost non-null-range item
+            const right = locatables[locatables.length - 1 - i];
+            if (!rightmost && right?.range) {
+                rightmost = right;
+            }
+
+            //if we have both sides, quit
+            if (leftmost && rightmost) {
+                break;
+            }
+        }
+        if (leftmost) {
+            return this.createRangeFromPositions(leftmost.range.start, rightmost.range.end);
+        } else {
+            return undefined;
+        }
+    }
+
+    /**
      * Create a `Position` object. Prefer this over `Position.create` for performance reasons
      */
     public createPosition(line: number, character: number) {
@@ -897,6 +939,9 @@ export class Util {
      * Convert a token into a BscType
      */
     public tokenToBscType(token: Token, allowCustomType = true) {
+        if (!token) {
+            return new DynamicType();
+        }
         // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
         switch (token.kind) {
             case TokenKind.Boolean:
@@ -1078,23 +1123,58 @@ export class Util {
     }
 
     /**
-     * Creates a new SGAttribute object, but keeps the existing Range references (since those shouldn't ever get changed directly)
+     * Creates a new SGAttribute object, but keeps the existing Range references (since those should be immutable)
      */
     public cloneSGAttribute(attr: SGAttribute, value: string) {
-        return {
-            key: {
-                text: attr.key.text,
-                range: attr.range
-            },
-            value: {
-                text: value,
-                range: attr.value.range
-            },
-            range: attr.range
-        } as SGAttribute;
+        return new SGAttribute(
+            { text: attr.tokens.key.text, range: attr.range },
+            { text: '=' },
+            { text: '"' },
+            { text: value, range: attr.tokens.value.range },
+            { text: '"' }
+        );
     }
 
     /**
+     * Shorthand for creating a new source node
+     */
+    public sourceNode(source: string, locatable: { range: Range }, code: string | SourceNode | TranspileResult): SourceNode | undefined {
+        if (code !== undefined) {
+            const node = new SourceNode(
+                null,
+                null,
+                source,
+                code
+            );
+            if (locatable.range) {
+                //convert 0-based Range line to 1-based SourceNode line
+                node.line = locatable.range.start.line + 1;
+                //SourceNode columns are 0-based so no conversion necessary
+                node.column = locatable.range.start.character;
+            }
+            return node;
+        }
+    }
+
+    /**
+     * Remove leading simple protocols from a path (if present)
+     */
+    public removeProtocol(pkgPath: string) {
+        let match = /^[-a-z_]+:\//.exec(pkgPath);
+        if (match) {
+            return pkgPath.substring(match[0].length);
+        } else {
+            return pkgPath;
+        }
+    }
+
+    public standardizePath(thePath: string) {
+        return util.driveLetterToLower(
+            rokuDeploy.standardizePath(thePath)
+        );
+    }
+
+    /*
      * Copy the version of bslib from local node_modules to the staging folder
      */
     public async copyBslibToStaging(stagingDir: string) {
@@ -1135,6 +1215,49 @@ export class Util {
             code: diagnostic.code,
             source: 'brs'
         };
+    }
+
+    /**
+     * Gets the minimum and maximum number of allowed params
+     * @param params The list of callable parameters to check
+     * @returns the minimum and maximum number of allowed params
+     */
+    public getMinMaxParamCount(params: CallableParam[]): { min: number; max: number } {
+        //get min/max parameter count for callable
+        let minParams = 0;
+        let maxParams = 0;
+        let continueCheckingForRequired = true;
+        for (let param of params) {
+            maxParams++;
+            //optional parameters must come last, so we can assume that minParams won't increase once we hit
+            //the first isOptional
+            if (continueCheckingForRequired && !param.isOptional) {
+                minParams++;
+            } else {
+                continueCheckingForRequired = false;
+            }
+        }
+        return { min: minParams, max: maxParams };
+    }
+
+    /**
+     * Finds the array of callables from a container map, taking into account the function from which it was called
+     * If the callable was called in a function in a namespace, functions in that namespace are preferred
+     * @return an array with callable containers - could be empty if nothing was found
+     */
+    public getCallableContainersFromContainerMapByFunctionCall(callablesByLowerName: CallableContainerMap, expCall: FunctionCall): CallableContainer[] {
+        let callablesWithThisName: CallableContainer[] = [];
+        const lowerName = expCall.name.toLowerCase();
+        if (expCall.functionExpression.namespaceName) {
+            // prefer namespaced function
+            const potentialNamespacedCallable = expCall.functionExpression.namespaceName.getName(ParseMode.BrightScript).toLowerCase() + '_' + lowerName;
+            callablesWithThisName = callablesByLowerName.get(potentialNamespacedCallable.toLowerCase());
+        }
+        if (!callablesWithThisName || callablesWithThisName.length === 0) {
+            // just try it as is
+            callablesWithThisName = callablesByLowerName.get(lowerName);
+        }
+        return callablesWithThisName;
     }
 
     /**
@@ -1211,12 +1334,9 @@ export function standardizePath(stringParts, ...expressions: any[]) {
     for (let i = 0; i < stringParts.length; i++) {
         result.push(stringParts[i], expressions[i]);
     }
-    return util.driveLetterToLower(
-        rokuDeploy.standardizePath(
-            result.join('')
-        )
-    );
+    return util.standardizePath(result.join(''));
 }
+
 
 export let util = new Util();
 export default util;

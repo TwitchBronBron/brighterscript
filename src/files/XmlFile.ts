@@ -3,30 +3,33 @@ import type { CodeWithSourceMap } from 'source-map';
 import { SourceNode } from 'source-map';
 import type { CompletionItem, Hover, Location, Position, Range } from 'vscode-languageserver';
 import { DiagnosticCodeMap, diagnosticCodes, DiagnosticMessages } from '../DiagnosticMessages';
-import type { FunctionScope } from '../FunctionScope';
-import type { Callable, BsDiagnostic, File, FileReference, FunctionCall, CommentFlag } from '../interfaces';
+import type { Callable, BsDiagnostic, FileReference, FunctionCall, CommentFlag, BscFile } from '../interfaces';
 import type { Program } from '../Program';
 import util from '../util';
-import SGParser, { rangeFromTokenValue } from '../parser/SGParser';
+import SGParser from '../parser/SGParser';
 import chalk from 'chalk';
 import { Cache } from '../Cache';
 import type { DependencyGraph } from '../DependencyGraph';
 import type { SGAst, SGToken } from '../parser/SGTypes';
-import { SGScript } from '../parser/SGTypes';
 import { CommentFlagProcessor } from '../CommentFlagProcessor';
 import type { IToken, TokenType } from 'chevrotain';
 import { TranspileState } from '../parser/TranspileState';
+import type { FunctionExpression } from '../parser/Expression';
+import { createSGScript } from '../astUtils/creators';
 
 export class XmlFile {
     constructor(
-        public pathAbsolute: string,
         /**
-         * The absolute path to the file, relative to the pkg
+         * The absolute path to the source file on disk (e.g. '/usr/you/projects/RokuApp/source/main.brs' or 'c:/projects/RokuApp/source/main.brs').
+         */
+        public srcPath: string,
+        /**
+         * The full pkg path (i.e. `pkg:/path/to/file.brs`)
          */
         public pkgPath: string,
         public program: Program
     ) {
-        this.extension = path.extname(pathAbsolute).toLowerCase();
+        this.extension = path.extname(srcPath).toLowerCase();
 
         this.possibleCodebehindPkgPaths = [
             this.pkgPath.replace('.xml', '.bs'),
@@ -111,7 +114,7 @@ export class XmlFile {
                 .filter(x => util.getExtension(x) !== '.d.bs');
 
             let result = [] as string[];
-            let filesInProgram = this.program.getFilesByPkgPaths(allDependencies);
+            let filesInProgram = allDependencies.map(x => this.program.getFile(x)).filter(file => file !== undefined);
             for (let file of filesInProgram) {
                 result.push(file.pkgPath);
             }
@@ -142,8 +145,6 @@ export class XmlFile {
 
     //TODO implement the xml CDATA parsing, which would populate this list
     public functionCalls = [] as FunctionCall[];
-
-    public functionScopes = [] as FunctionScope[];
 
     /**
      * The name of the component that this component extends.
@@ -179,6 +180,11 @@ export class XmlFile {
     public fileContents: string;
 
     /**
+     * Indicates whether this file needs to be validated.
+     */
+    public isValidated = false;
+
+    /**
      * Calculate the AST for this file
      * @param fileContents
      */
@@ -190,19 +196,7 @@ export class XmlFile {
             ...diagnostic,
             file: this
         }));
-
         this.getCommentFlags(this.parser.tokens as any[]);
-
-        if (!this.parser.ast.root) {
-            //skip empty XML
-            return;
-        }
-
-        //notify AST ready
-        this.program.plugins.emit('afterFileParse', this);
-
-        //initial validation
-        this.validateComponent(this.parser.ast);
     }
 
     /**
@@ -217,12 +211,18 @@ export class XmlFile {
                 processor.tryAdd(
                     //remove the close comment symbol
                     token.image.replace(/\-\-\>$/, ''),
-                    rangeFromTokenValue(token)
+                    //technically this range is 3 characters longer due to the removed `-->`, but that probably doesn't matter
+                    this.parser.rangeFromToken(token)
                 );
             }
         }
         this.commentFlags.push(...processor.commentFlags);
         this.diagnostics.push(...processor.diagnostics);
+    }
+
+    public validate() {
+        //initial validation
+        this.validateComponent(this.parser.ast);
     }
 
     private validateComponent(ast: SGAst) {
@@ -241,14 +241,14 @@ export class XmlFile {
         if (!component.name) {
             this.diagnostics.push({
                 ...DiagnosticMessages.xmlComponentMissingNameAttribute(),
-                range: component.tag.range,
+                range: component.tokens.startTagName.range,
                 file: this
             });
         }
         if (!component.extends) {
             this.diagnostics.push({
                 ...DiagnosticMessages.xmlComponentMissingExtendsAttribute(),
-                range: component.tag.range,
+                range: component.tokens.startTagName.range,
                 file: this
             });
         }
@@ -363,7 +363,7 @@ export class XmlFile {
      * Determines if this xml file has a reference to the specified file (or if it's itself)
      * @param file
      */
-    public doesReferenceFile(file: File) {
+    public doesReferenceFile(file: BscFile) {
         return this.cache.getOrAdd(`doesReferenceFile: ${file.pkgPath}`, () => {
             if (file === this) {
                 return true;
@@ -414,12 +414,12 @@ export class XmlFile {
         return null;
     }
 
-    public getReferences(position: Position): Promise<Location[]> { //eslint-disable-line
+    public getReferences(position: Position): Promise<Location[]> {
         //TODO implement
         return null;
     }
 
-    public getFunctionScopeAtPosition(position: Position, functionScopes?: FunctionScope[]): FunctionScope { //eslint-disable-line
+    public getFunctionExpressionAtPosition(position: Position, functionExpressions?: FunctionExpression[]): FunctionExpression {
         //TODO implement
         return null;
     }
@@ -496,28 +496,29 @@ export class XmlFile {
      * Convert the brightscript/brighterscript source code into valid brightscript
      */
     public transpile(): CodeWithSourceMap {
-        const state = new TranspileState(this.pathAbsolute, this.program.options);
+        const state = new TranspileState(this.srcPath, this.program.options);
 
         const extraImportScripts = this.getMissingImportsForTranspile().map(uri => {
-            const script = new SGScript();
-            script.uri = util.getRokuPkgPath(uri.replace(/\.bs$/, '.brs'));
-            return script;
+            return createSGScript({
+                type: 'text/brightscript',
+                uri: util.sanitizePkgPath(uri.replace(/\.bs$/, '.brs'))
+            });
         });
 
         let transpileResult: SourceNode | undefined;
 
         if (this.needsTranspiled || extraImportScripts.length > 0) {
             //temporarily add the missing imports as script tags
-            const originalScripts = this.ast.component?.scripts ?? [];
-            this.ast.component.scripts = [
-                ...originalScripts,
-                ...extraImportScripts
-            ];
+            for (const script of extraImportScripts) {
+                this.ast.component.addChild(script);
+            }
 
             transpileResult = new SourceNode(null, null, state.srcPath, this.parser.ast.transpile(state));
 
-            //restore the original scripts array
-            this.ast.component.scripts = originalScripts;
+            //remove the extra script imports
+            for (const script of extraImportScripts) {
+                this.ast.component.removeChild(script);
+            }
 
         } else if (this.program.options.sourceMap) {
             //emit code as-is with a simple map to the original file location
